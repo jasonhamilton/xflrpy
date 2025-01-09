@@ -1,143 +1,147 @@
 import msgpackrpc as rpc
+from xflrpy.module import ModuleType
+from xflrpy.exceptions import ClientAlreadyConnectedException, ClientNotConnectedException
+from collections import defaultdict
 import time
-from .types import *
-from .utils import *
 
-class xflrClient:
-    def __init__(self, ip = '127.0.0.1', port = 8080, connect_timeout = 100):
-        self._client = rpc.Client(rpc.Address(ip, port), timeout=connect_timeout, pack_encoding='utf-8', unpack_encoding='utf-8')
-        self.poll_timeout = 5 # seconds
+class ServerStateMessage():
+
+    @classmethod
+    def from_msgpack(cls, msgpack):
+        state = cls()
+        state.project_path = msgpack['projectPath']
+        state.project_name = msgpack['projectName']
+        state.current_module = msgpack['app']
+        state.saved = msgpack['saved']
+        state.display = msgpack['display']
+        state.app_enum = ModuleType(msgpack['app'])
+        return state
+
+class Client():
+    """
+    Client class manages the connection to the XFLR5-RPC server.  The class uses the singleton pattern to
+    avoid having to pass the client down the class hierarchy to each child.
+
+    Returns:
+        Client: instance of Client
+    """
+    _instance = None
+    call_count = defaultdict(lambda: 0)
+    call_time = defaultdict(lambda: 0)
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(Client, cls).__new__(
+                                cls, *args, **kwargs)
+        return cls._instance
+    def connect(self, ip = '127.0.0.1', port = 8080, connect_timeout = 300):
+        """
+        Initiates the connection to the server.  This should only be run only if the client is not connected, otherwise
+        it will throw a ClientAlreadyConnectedException.  Returns self to allow chaining, for example 'client = Client().connect()'.
+
+        Args:
+            ip (str): IP Address of remote XFLR5-RPC server
+            port (int): Port of remote XFLR5-RPC server
+            connect_timeout (int): timeout in seconds to wait before raising an error.  Note that some calls stay open while the server
+                is processing so too low of a value may cause problems.
+        Returns:
+            Client: instance of Client on success
+        """
+        if self.is_connected:
+            raise ClientAlreadyConnectedException('client already connected')
+        
+        from xflrpy.project import ProjectManager
+        from xflrpy.foil import FoilManager
+        from xflrpy.plane import PlaneManager
+        from xflrpy.module import ModuleManager
+        
+        self.remote_address = f"{ip}:{port}"
+        self._state = {}
+        self._rpc_client = rpc.Client(rpc.Address(ip, port), timeout=connect_timeout, pack_encoding='utf-8', unpack_encoding='utf-8')
+        self.project = ProjectManager()
+        self.foils = FoilManager()
+        self.planes = PlaneManager()
+        self.modules = ModuleManager()
         try:
-            if self.ping():
-                print(f"Xflr client connected at port: {port}")
+            if self.is_connected:
+                self._update_state()
+                return self
         except rpc.error.TransportError:
             print("Could not connect to the XFLR5 server. Is the application gui running?\n")
-
-    @property
-    def state(self):
+    
+    def call(self, rpc_call, *args, **kwargs):
         """
-        Returns a State object for the mainframe
+        Delegates call method to the RPC client.  Updates state after each call to ensure state is in sync.
+
+        Args:
+            rpc_call (str): name of rpc function on server
+        Returns:
+            any: returns raw result of rpc response from server
+        """
+        self.call_count[rpc_call] += 1
+        call_id = sum(self.call_count.values())
+        
+        self._ensure_rpc_client_exists()
+        # print(f'CALL STARTED: {rpc_call} ({call_id})', *args, **kwargs)
+        # print(f'CALL STARTED: {rpc_call} ({call_id})')
+        start = time.time()
+        res = self._rpc_client.call(rpc_call, *args, **kwargs)
+        timer = time.time() - start
+        # print(f'CALL COMPLETE: {timer:.2f} seconds ({call_id})', res)
+        # print(f'CALL COMPLETE: {timer:.2f} seconds ({call_id})')
+        self.call_time[rpc_call] += timer
+        # self._update_state()
+        return res
+    
+    def close(self) -> None:
+        """
+        Closes the connection with the server.
 
         Returns:
-            State()
+            None
         """
-        state_raw = self._client.call("getState")
-        state_raw['app'] = enumApp(state_raw['app'])
-        return State.from_msgpack(state_raw)
-    
-    @property
-    def client(self):
-        return self._client
+        self._rpc_client.close()
+        delattr(self, "_rpc_client")
 
-    def ping(self):
+    @property
+    def is_connected(self) -> bool:
         """
         Returns true is the server is connected to the client and data can be exchanged.
         """
-        return self._client.call("ping")
-
-    def loadProject(self, files, save_current = True):
-        """
-        Returns pointer to application.
-
-        If false (which is default) then API calls would be ignored. After a successful call to `enableApiControl`, `isApiControlEnabled` should return true.
-
-        Args:
-            files: (str) Absolute project path to .xfl file / (list) List of .dat airfoil files to open 
-            save_current (bool, optional): Flag to save the current project
-
-        Returns:
-            Currently open pointer to an application object.
-        """
-        if save_current:
-            self.saveProject()
-        if type(files) == str:
-            files = [files]
-        if files is None:
-            print("{1}: Please provide valid file(s). Accepted file formats: .xfl, .dat, .wpa,  ".format(files))
-        else:
-            self._client.call('loadProject', files)
-            return self.getApp()
-
-    def newProject(self, projectPath = "", save_current = True):
-        """
-        Args:
-            projectPath: (str, optional) Absolute project path to .xfl file
-            save_current (bool, optional): Flag to save the current project
-
-        Returns:
-            Currently open pointer to an application object.
-        """
-        if save_current:
-            self.saveProject()
-        self._client.call("newProject")
-        if projectPath != "":
-            if projectPath[-4:]!=".xfl": 
-                projectPath += ".xfl"
-            self.saveProject(projectPath)
-        return self.getApp()
+        if not hasattr(self, '_rpc_client'):
+            return False
+        return self.call("ping")
     
-    def saveProject(self, projectPath = "")->None:
-        """
-        Save the appropriate project.
+    @property
+    def state(self) -> dict:
+        self._ensure_rpc_client_exists()
+        self._update_state()
+        return { 
+                'connected': self.is_connected, 
+                'display': self._state['display'],
+                }
+    def _ensure_rpc_client_exists(self):
+        if not hasattr(self, '_rpc_client'):
+            raise ClientNotConnectedException("Client is not connected")
 
-        Args:
-            projectPath: (str, optional) Absolute project path to .xfl file
-                         if empty, the current project will be saved
+    def _update_state(self) -> None:
+        """
+        Gets updated state from server and passes updated state to children
+
         Returns:
             None
-        """
-        if self.state.saved:
-            return    
-        if projectPath != "":      
-            self._client.call("setProjectPath", projectPath)
-        elif self.state.projectPath =="":
-            print("Current project is empty. Please save with a valid path")
-            return
-        self._client.call("saveProject")
+        """  
+        new_state =  ServerStateMessage.from_msgpack(self._rpc_client.call("getState"))
+        self._state = {
+            'current_module' : new_state.current_module,
+            'saved' : new_state.saved,
+            'display' : new_state.display
+        }
+        self.project._handle_state_change(new_state)
+        self.modules._handle_state_change(new_state)
 
-    def getApp(self, app = None):
-        """
-        Returns pointer to application.
-
-        Args:
-            app: (enumApp/int, optional) Required enum for application
-
-        Returns:
-            Currently open pointer to an application object.
-        """
-        if app is None:
-            app = self.state.app
-
-        if app == enumApp.NOAPP:
-            print("The current project is empty. Nothing to return")
-            return
-        elif app == enumApp.XFOILANALYSIS:
-            return XDirect(self._client)
-        elif app == enumApp.MIAREX:
-            return Miarex(self._client)
-        elif app == enumApp.DIRECTDESIGN:
-            return Afoil(self._client)
-        elif app == enumApp.INVERSEDESIGN:
-            return XInverse(self._client)
+    def __str__(self):
+        connected_str = "connected" if self.is_connected else "not connected"
+        return f"<XFLRClient>(server:{self.remote_address}, status:{connected_str})"
     
-    def setApp(self, app:enumApp)->None:
-        """
-        Set the required application on the gui
-
-        Args:
-            app: (enumApp/int) Required enum for application
-
-        Returns:
-            None
-        """
-        self._client.call("setApp", int(app))
-            
-    def close(self):
-        """
-        Cleanly exit the server thread and close the gui as well. 
-
-        Returns:
-            None
-        """
-        print("Closing Xflr client and server")
-        self._client.call("exit")
+    def __repr__(self):        
+        return self.__str__()
