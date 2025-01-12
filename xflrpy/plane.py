@@ -1,10 +1,10 @@
 from xflrpy.mixins import MsgpackMixin, DictListInterface
-from xflrpy.polar import PolarType
+from xflrpy.polar2d import PolarType
 from xflrpy.client import Client
 import enum
 import re
 
-class enumWingType(enum.IntEnum):
+class WingType(enum.IntEnum):
     MAINWING = 0
     SECONDWING = 1
     ELEVATOR = 2
@@ -38,8 +38,6 @@ class enumWPolarResult(enum.IntEnum):
     FZ = 12
     QINF = 13
 
-
-
 class WingSection(MsgpackMixin):
     y_position = 0  # yPos(m): spanwise position of segment
     chord = 0.1 # chord(m): length of segment in x (longitudinal) direction
@@ -67,10 +65,10 @@ class WingSection(MsgpackMixin):
         self.y_panel_dist = y_panel_dist
 
 class Wing(MsgpackMixin):
-    type = enumWingType.MAINWING
+    type = WingType.MAINWING
     sections = [] # list of WingSection
     
-    def __init__(self, type=enumWingType.MAINWING, sections:list = None):
+    def __init__(self, type=WingType.MAINWING, sections:list = None):
         self.type = type
         if sections is None:
             self.sections = []
@@ -98,17 +96,17 @@ class PlaneDetail():
 
 class Plane(MsgpackMixin):
     name = ""
-    wing = Wing(enumWingType.MAINWING)
-    wing2 = Wing(enumWingType.SECONDWING)
-    elevator = Wing(enumWingType.ELEVATOR)
-    fin = Wing(enumWingType.FIN)
+    wing = Wing(WingType.MAINWING)
+    wing2 = Wing(WingType.SECONDWING)
+    elevator = Wing(WingType.ELEVATOR)
+    fin = Wing(WingType.FIN)
 
     def __init__(self, name="Plane Name") -> None:
         self.name = name
-        self.wing = Wing(enumWingType.MAINWING)
-        self.wing2 = Wing(enumWingType.SECONDWING)
-        self.elevator = Wing(enumWingType.ELEVATOR)
-        self.fin = Wing(enumWingType.FIN)
+        self.wing = Wing(WingType.MAINWING)
+        self.wing2 = Wing(WingType.SECONDWING)
+        self.elevator = Wing(WingType.ELEVATOR)
+        self.fin = Wing(WingType.FIN)
         self._client = Client()
     
     def __str__(self):

@@ -26,6 +26,7 @@ class Client():
         Client: instance of Client
     """
     _instance = None
+    remote_address = None
     call_count = defaultdict(lambda: 0)
     call_time = defaultdict(lambda: 0)
     def __new__(cls, *args, **kwargs):
@@ -33,7 +34,7 @@ class Client():
             cls._instance = super(Client, cls).__new__(
                                 cls, *args, **kwargs)
         return cls._instance
-    def connect(self, ip = '127.0.0.1', port = 8080, connect_timeout = 300):
+    def connect(self, ip = '127.0.0.1', port = 8080, timeout = 300):
         """
         Initiates the connection to the server.  This should only be run only if the client is not connected, otherwise
         it will throw a ClientAlreadyConnectedException.  Returns self to allow chaining, for example 'client = Client().connect()'.
@@ -41,7 +42,7 @@ class Client():
         Args:
             ip (str): IP Address of remote XFLR5-RPC server
             port (int): Port of remote XFLR5-RPC server
-            connect_timeout (int): timeout in seconds to wait before raising an error.  Note that some calls stay open while the server
+            timeout (int): timeout in seconds to wait before raising an error.  Note that some calls stay open while the server
                 is processing so too low of a value may cause problems.
         Returns:
             Client: instance of Client on success
@@ -56,7 +57,7 @@ class Client():
         
         self.remote_address = f"{ip}:{port}"
         self._state = {}
-        self._rpc_client = rpc.Client(rpc.Address(ip, port), timeout=connect_timeout, pack_encoding='utf-8', unpack_encoding='utf-8')
+        self._rpc_client = rpc.Client(rpc.Address(ip, port), timeout=timeout, pack_encoding='utf-8', unpack_encoding='utf-8')
         self.project = ProjectManager()
         self.foils = FoilManager()
         self.planes = PlaneManager()
@@ -81,12 +82,12 @@ class Client():
         call_id = sum(self.call_count.values())
         
         self._ensure_rpc_client_exists()
-        # print(f'CALL STARTED: {rpc_call} ({call_id})', *args, **kwargs)
+        print(f'CALL STARTED: {rpc_call} ({call_id})', *args, **kwargs)
         # print(f'CALL STARTED: {rpc_call} ({call_id})')
         start = time.time()
         res = self._rpc_client.call(rpc_call, *args, **kwargs)
         timer = time.time() - start
-        # print(f'CALL COMPLETE: {timer:.2f} seconds ({call_id})', res)
+        print(f'CALL COMPLETE: {timer:.2f} seconds ({call_id})', res)
         # print(f'CALL COMPLETE: {timer:.2f} seconds ({call_id})')
         self.call_time[rpc_call] += timer
         # self._update_state()

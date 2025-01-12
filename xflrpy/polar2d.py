@@ -57,6 +57,23 @@ class AnalysisSettings2D(MsgpackMixin):
         self.viscous = viscous
         self.keep_open_on_error = keep_open_on_error
 
+class BatchAnalysisSettings2D(MsgpackMixin):
+    foil_names = []
+    re_list = []
+    mach = 0
+    ncrit = 9
+    polarType = PolarType.FIXEDLIFTPOLAR
+    transition_top = 1
+    transition_bot = 1
+    range_type_alpha = True
+    min = 1
+    max = 10
+    increment = 0.25
+    from_zero = True
+    init_bl = True
+    store_op_point = True
+    update_polar_view = True
+    thread_count = 0  # 0 = auto
 
 class PolarSpec(MsgpackMixin):
     polar_type = PolarType.FIXEDSPEEDPOLAR
